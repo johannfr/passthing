@@ -206,7 +206,10 @@ if __name__ == "__main__":
             sys.stdout.flush()
             
         else:
-            command = line.split()[0]
+            try:
+                command = line.split()[0]
+            except IndexError:
+                continue
             if command in commands.keys():
                 commands[command](" ".join(line.split()[1:]))
             else:
