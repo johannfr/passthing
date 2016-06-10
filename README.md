@@ -19,3 +19,5 @@ This was hacked together over a period of a few hours.
  * list - List the names of all entries
  * exit - ...
 
+[![asciicast](https://asciinema.org/a/9bvevukal5e7xb02fwvk4z56y.png)](https://asciinema.org/a/9bvevukal5e7xb02fwvk4z56y) 
+
