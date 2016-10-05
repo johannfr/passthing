@@ -10,6 +10,8 @@ import base64
 import os
 import time
 import subprocess
+import string
+import random
 
 from colored import fg, bg, attr
 
@@ -18,6 +20,9 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import InvalidToken
+
+timeout = 10
+xclip = False
 
 class Database(object):
     def __init__(self, master_password="", master_salt="", passwords={}):
@@ -62,16 +67,49 @@ def verify_master_password(master_password):
     return True
 
 
+def copy_clipboard(text):
+    xclip_process = subprocess.Popen(['xclip', '-i'], stdin=subprocess.PIPE)
+    xclip_process.communicate(text)
+    xclip_process = subprocess.Popen(['xclip', '-i', '-selection', 'clipboard'], stdin=subprocess.PIPE)
+    xclip_process.communicate(text)
+
+def output_password(password):
+    global timeout
+    global xclip
+    max_length = 0
+    if xclip:
+        copy_clipboard(password)
+    for i in reversed(range(timeout)):
+        out_string = "\rPassword(%d): %s%s%s%s"%(i, fg(0), bg(0), password, attr(0))
+        max_length = max([max_length, len(out_string)])
+        sys.stdout.write(out_string)
+        sys.stdout.flush()
+        time.sleep(1)
+    if xclip:
+        copy_clipboard("")
+    sys.stdout.write("\r%s%s"%(" "*max_length, "\n"))
+    sys.stdout.flush()
+
+def generate_password(length=16):
+    chars = string.ascii_letters + string.digits + "!@#$%^&*()"
+    random.seed(os.urandom(1024))
+    return "".join(random.choice(chars) for i in range(length))
+
+
 def save_database():
     pickle.dump(database, open(database_filename, "wb"), protocol=2)
 
 def modifyCommand(entry_name, from_new=False):
+    generated = False
     if not from_new and not database.passwords.has_key(entry_name):
         print "Entry not found: %s"%entry_name
         return
     readline.parse_and_bind('set disable-completion on')
     username = raw_input("Username: ")
-    password = getpass.getpass()
+    password = getpass.getpass(prompt="Password[generate): ")
+    if len(password) == 0:
+        generated = True
+        password = generate_password()
     salt = os.urandom(16)
     master_password = getpass.getpass("Master-password: ")
     if not verify_master_password(master_password):
@@ -83,6 +121,8 @@ def modifyCommand(entry_name, from_new=False):
         "salt" : salt
     }
     save_database()
+    if generated:
+        output_password(password)
     readline.parse_and_bind('set disable-completion off')
 
 def removeCommand(entry_name):
@@ -127,11 +167,6 @@ def completer(text, state):
     else:
         return None
 
-def copyClipboard(text):
-    xclip_process = subprocess.Popen(['xclip', '-i'], stdin=subprocess.PIPE)
-    xclip_process.communicate(text)
-    xclip_process = subprocess.Popen(['xclip', '-i', '-selection', 'clipboard'], stdin=subprocess.PIPE)
-    xclip_process.communicate(text)
 
 
 
@@ -180,6 +215,9 @@ if __name__ == "__main__":
             sys.stderr.write("xclip not installed. Clipboard support not available.\n")
             sys.exit(1)
 
+    timeout = args.timeout
+    xclip = args.clipboard
+
     try:
         database = pickle.load(open(args.database, "rb"))
         master_password = getpass.getpass("Master-password: ")
@@ -218,19 +256,7 @@ if __name__ == "__main__":
             master_password = getpass.getpass("Master-password: ")
             password = decrypt(master_password, database.passwords[line]["password"], database.passwords[line]["salt"])
             print "Username: %s"%database.passwords[line]["username"]
-            max_length = 0
-            if args.clipboard:
-                copyClipboard(password)
-            for i in reversed(range(args.timeout)):
-                out_string = "\rPassword(%d): %s%s%s%s"%(i, fg(0), bg(0), password, attr(0))
-                max_length = max([max_length, len(out_string)])
-                sys.stdout.write(out_string)
-                sys.stdout.flush()
-                time.sleep(1)
-            if args.clipboard:
-                copyClipboard("")
-            sys.stdout.write("\r%s%s"%(" "*max_length, "\n"))
-            sys.stdout.flush()
+            output_password(password)
 
         else:
             try:
