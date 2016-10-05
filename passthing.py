@@ -9,6 +9,7 @@ import pickle
 import base64
 import os
 import time
+import subprocess
 
 from colored import fg, bg, attr
 
@@ -107,11 +108,11 @@ def exitCommand(entry_key):
     sys.exit(0)
 
 commands = {
-    "new" : newCommand,
-    "remove" : removeCommand,
-    "modify" : modifyCommand,
-    "list" : listCommand,
-    "exit" : exitCommand
+    "new" : [newCommand, "Create new entry"],
+    "remove" : [removeCommand, "Remove entry"],
+    "modify" : [modifyCommand, "Modify entry"],
+    "list" : [listCommand, "List entries"],
+    "exit" : [exitCommand, "Exit from %s"%sys.argv[0]]
 }
 
 def completer(text, state):
@@ -126,6 +127,11 @@ def completer(text, state):
     else:
         return None
 
+def copyClipboard(text):
+    xclip_process = subprocess.Popen(['xclip', '-i'], stdin=subprocess.PIPE)
+    xclip_process.communicate(text)
+    xclip_process = subprocess.Popen(['xclip', '-i', '-selection', 'clipboard'], stdin=subprocess.PIPE)
+    xclip_process.communicate(text)
 
 
 
@@ -150,13 +156,30 @@ if __name__ == "__main__":
             help="How long password should remain on screen",
             nargs="?",
             type=int,
-            default=5
+            default=10
+            )
+
+    parser.add_argument(
+            "-c",
+            "--clipboard",
+            help="Store password to X11 clipboard (requires xclip)",
+            action="store_true",
+            default=False
             )
 
     args = parser.parse_args(sys.argv[1:])
     database_filename = args.database
 
     new_database = False
+
+    if args.clipboard:
+        try:
+            fnull = open(os.devnull, "w")
+            subprocess.Popen(['xclip', '-version'], stdin=subprocess.PIPE, stderr=fnull)
+        except OSError:
+            sys.stderr.write("xclip not installed. Clipboard support not available.\n")
+            sys.exit(1)
+
     try:
         database = pickle.load(open(args.database, "rb"))
         master_password = getpass.getpass("Master-password: ")
@@ -196,21 +219,29 @@ if __name__ == "__main__":
             password = decrypt(master_password, database.passwords[line]["password"], database.passwords[line]["salt"])
             print "Username: %s"%database.passwords[line]["username"]
             max_length = 0
+            if args.clipboard:
+                copyClipboard(password)
             for i in reversed(range(args.timeout)):
                 out_string = "\rPassword(%d): %s%s%s%s"%(i, fg(0), bg(0), password, attr(0))
                 max_length = max([max_length, len(out_string)])
                 sys.stdout.write(out_string)
                 sys.stdout.flush()
                 time.sleep(1)
+            if args.clipboard:
+                copyClipboard("")
             sys.stdout.write("\r%s%s"%(" "*max_length, "\n"))
             sys.stdout.flush()
-            
+
         else:
             try:
                 command = line.split()[0]
             except IndexError:
                 continue
+            if command == "help":
+                for cmd in commands.keys():
+                    print "%s\t- %s"%(cmd, commands[cmd][1])
+                continue
             if command in commands.keys():
-                commands[command](" ".join(line.split()[1:]))
+                commands[command][0](" ".join(line.split()[1:]))
             else:
                 print "No such command: %s"%command
