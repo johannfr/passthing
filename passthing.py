@@ -21,160 +21,186 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import InvalidToken
 
-timeout = 10
-xclip = False
+class DatabaseStructure(object):
+        def __init__(self, master_password="", master_salt="", passwords={}):
+            self.master_password = master_password
+            self.master_salt = master_salt
+            self.passwords = passwords
 
-class Database(object):
-    def __init__(self, master_password="", master_salt="", passwords={}):
-        self.master_password = master_password
-        self.master_salt = master_salt
-        self.passwords = passwords
+class Database():
 
-database = None
-database_filename = "passthing.pt"
-crypto_unit = None
+    def __init__(self, database):
+        self.database = database
 
-def encrypt(master_password, text, salt):
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=100000,
-        backend=default_backend()
-        )
-    key = base64.urlsafe_b64encode(kdf.derive(master_password))
-    fernet = Fernet(key)
-    return fernet.encrypt(text)
+    def verify_master_password(self, password):
+        try:
+            if password != Database.decrypt(password, self.database.master_password, self.database.master_salt):
+                return False
+        except InvalidToken:
+                return False
+        return True
 
-def decrypt(master_password, text, salt):
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=100000,
-        backend=default_backend()
-        )
-    key = base64.urlsafe_b64encode(kdf.derive(master_password))
-    fernet = Fernet(key)
-    return fernet.decrypt(text)
+    def get_entry_names(self):
+        return self.database.passwords.keys()
 
-def verify_master_password(master_password):
-    try:
-        if master_password != decrypt(master_password, database.master_password, database.master_salt):
-            return False
-    except InvalidToken:
-            return False
-    return True
+    def get_entry(self, entry_name, master_password):
+        entry = self.database.passwords[entry_name]
+        username = entry["username"]
+        password = Database.decrypt(master_password, entry["password"], entry["salt"])
+        return username, password
+
+    def remove_entry(self, entry_name):
+        self.database.passwords.pop(entry_name)
+
+    def set_entry(self, entry_name, master_password, username, password, salt):
+        self.database.passwords[entry_name] = {
+            "username" : username,
+            "password" : Database.encrypt(master_password, password, salt),
+            "salt" : salt
+        }
 
 
-def copy_clipboard(text):
-    xclip_process = subprocess.Popen(['xclip', '-i'], stdin=subprocess.PIPE)
-    xclip_process.communicate(text)
-    xclip_process = subprocess.Popen(['xclip', '-i', '-selection', 'clipboard'], stdin=subprocess.PIPE)
-    xclip_process.communicate(text)
+    def generate_password(self, length=16):
+        chars = string.ascii_letters + string.digits + "!@#$%^&*()"
+        random.seed(os.urandom(1024))
+        return "".join(random.choice(chars) for i in range(length))
 
-def output_password(password):
-    global timeout
-    global xclip
-    max_length = 0
-    if xclip:
-        copy_clipboard(password)
-    for i in reversed(range(timeout)):
-        out_string = "\rPassword(%d): %s%s%s%s"%(i, fg(0), bg(0), password, attr(0))
-        max_length = max([max_length, len(out_string)])
-        sys.stdout.write(out_string)
+    def save(self, filename="passthing.pt"):
+        pickle.dump(self.database, open(filename, "wb"), protocol=2)
+
+    @staticmethod
+    def encrypt(master_password, text, salt):
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+            backend=default_backend()
+            )
+        key = base64.urlsafe_b64encode(kdf.derive(master_password))
+        fernet = Fernet(key)
+        return fernet.encrypt(text)
+
+    @staticmethod
+    def decrypt(master_password, text, salt):
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+            backend=default_backend()
+            )
+        key = base64.urlsafe_b64encode(kdf.derive(master_password))
+        fernet = Fernet(key)
+        return fernet.decrypt(text)
+
+
+
+class Output():
+    def __init__(self, timeout=10, xclip=False):
+        self.timeout = timeout
+        self.xclip = xclip
+
+    def copy_clipboard(self, text):
+        xclip_process = subprocess.Popen(['xclip', '-i'], stdin=subprocess.PIPE)
+        xclip_process.communicate(text)
+        xclip_process = subprocess.Popen(['xclip', '-i', '-selection', 'clipboard'], stdin=subprocess.PIPE)
+        xclip_process.communicate(text)
+
+    def write(self, password):
+        max_length = 0
+        if self.xclip:
+            self.copy_clipboard(password)
+        for i in reversed(range(self.timeout)):
+            out_string = "\rPassword(%d): %s%s%s%s"%(i, fg(0), bg(0), password, attr(0))
+            max_length = max([max_length, len(out_string)])
+            sys.stdout.write(out_string)
+            sys.stdout.flush()
+            time.sleep(1)
+        if self.xclip:
+            self.copy_clipboard("")
+        sys.stdout.write("\r%s%s"%(" "*max_length, "\n"))
         sys.stdout.flush()
-        time.sleep(1)
-    if xclip:
-        copy_clipboard("")
-    sys.stdout.write("\r%s%s"%(" "*max_length, "\n"))
-    sys.stdout.flush()
 
-def generate_password(length=16):
-    chars = string.ascii_letters + string.digits + "!@#$%^&*()"
-    random.seed(os.urandom(1024))
-    return "".join(random.choice(chars) for i in range(length))
+class Completion:
+    def __init__(self, database, commands):
+        self.database = database
+        self.commands = commands
+
+    def completer(self, text, state):
+        part = text.split()[-1]
+        if len(text.split()) > 1:
+            options = [i for i in self.database.get_entry_names() if part in i]
+        else:
+            options = [i for i in self.commands if i.startswith(part)]
+            options += [i for i in self.database.get_entry_names() if part in i]
+        if state < len(options):
+            return options[state]
+        else:
+            return None
 
 
-def save_database():
-    pickle.dump(database, open(database_filename, "wb"), protocol=2)
-
-def modifyCommand(entry_name, from_new=False):
+def modify_command(entry_name, database, output, from_new=False):
     generated = False
-    if not from_new and not database.passwords.has_key(entry_name):
+    if not from_new and entry_name not in database.get_entry_names():
         print "Entry not found: %s"%entry_name
         return
     readline.parse_and_bind('set disable-completion on')
     username = raw_input("Username: ")
-    password = getpass.getpass(prompt="Password[generate): ")
+    password = getpass.getpass(prompt="Password[generate]: ")
     if len(password) == 0:
         generated = True
-        password = generate_password()
-    salt = os.urandom(16)
+        password = database.generate_password()
+    salt = os.urandom(32)
     master_password = getpass.getpass("Master-password: ")
-    if not verify_master_password(master_password):
-        print "Invalid master-password."
+    if not database.verify_master_password(master_password):
+        print "Invalid master-password. Entry NOT saved."
         return
-    database.passwords[entry_name] = {
-        "username" : username,
-        "password" : encrypt(master_password, password, salt),
-        "salt" : salt
-    }
-    save_database()
+    database.set_entry(entry_name, master_password, username, password, salt)
+    database.save()
     if generated:
-        output_password(password)
+        output.write(password)
     readline.parse_and_bind('set disable-completion off')
 
-def removeCommand(entry_name):
-    if database.passwords.has_key(entry_name):
-        database.passwords.pop(entry_name)
-        save_database()
+def remove_command(entry_name, database, output):
+    try:
+        database.remove_entry(entry_name)
+        database.save()
+    except KeyError:
+        print "No such entry: %s"%entry_name
 
-def newCommand(entry_name):
-    readline.parse_and_bind('set disable-completion on')
-    while True:
-        entry_name = raw_input("Entry name: ")
-        if len(entry_name.split()) > 1:
-            print "Invalid entry name (no spaces, please)."
-            continue
-        break
-    modifyCommand(entry_name, True)
+def new_command(entry_name, database, output):
+    if len(entry_name) == 0:
+        readline.parse_and_bind('set disable-completion on')
+        while True:
+            entry_name = raw_input("Entry name: ")
+            if len(entry_name.split()) > 1:
+                print "Invalid entry name (no spaces, please)."
+                continue
+            break
+        # we have entry_name now
+    modify_command(entry_name, database, output, True)
 
-def listCommand(entry_name):
-    for i in database.passwords.keys():
-        print i
+def list_command(entry_name, database, output):
+    for item in database.get_entry_names():
+        print " %s"%item
 
-def exitCommand(entry_key):
+def exit_command(entry_key, database, output):
     sys.exit(0)
 
 commands = {
-    "new" : [newCommand, "Create new entry"],
-    "remove" : [removeCommand, "Remove entry"],
-    "modify" : [modifyCommand, "Modify entry"],
-    "list" : [listCommand, "List entries"],
-    "exit" : [exitCommand, "Exit from %s"%sys.argv[0]]
+    "new" : [new_command, "Create new entry"],
+    "remove" : [remove_command, "Remove entry"],
+    "modify" : [modify_command, "Modify entry"],
+    "list" : [list_command, "List entries"],
+    "exit" : [exit_command, "Exit passthing"]
 }
-
-def completer(text, state):
-    part = text.split()[-1]
-    if len(text.split()) > 1:
-        options = [i for i in database.passwords if part in i]
-    else:
-        options = [i for i in commands.keys() if i.startswith(part)]
-        options += [i for i in database.passwords if part in i]
-    if state < len(options):
-        return options[state]
-    else:
-        return None
-
-
-
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
             prog=sys.argv[0],
-            description="PassThingee",
+            description="passthing",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter
             )
 
@@ -182,7 +208,7 @@ if __name__ == "__main__":
             "database",
             help="Specify database file",
             nargs="?",
-            default=database_filename
+            default="passthing.pt"
             )
 
     parser.add_argument(
@@ -205,43 +231,25 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
     database_filename = args.database
 
-    new_database = False
-
-    if args.clipboard:
-        try:
-            fnull = open(os.devnull, "w")
-            subprocess.Popen(['xclip', '-version'], stdin=subprocess.PIPE, stderr=fnull)
-        except OSError:
-            sys.stderr.write("xclip not installed. Clipboard support not available.\n")
-            sys.exit(1)
-
-    timeout = args.timeout
-    xclip = args.clipboard
+    database = None
 
     try:
-        database = pickle.load(open(args.database, "rb"))
-        master_password = getpass.getpass("Master-password: ")
-        try:
-            if not verify_master_password(master_password):
-                # This code actually never gets called .. but lets keep it here.
-                sys.stderr.write("Invalid password\n")
-                sys.exit(1)
-        except InvalidToken:
-            sys.stderr.write("Invalid password\n")
-            sys.exit(1)
+        saved_database = pickle.load(open(args.database, "rb"))
+        database = Database(saved_database)
     except IOError:
-        new_database = True
-        print "Creating new database."
-        master_password = getpass.getpass("Master-password: ")
-        salt = os.urandom(16)
+        print "Creating a new database."
+        password = getpass.getpass(prompt="New master-password: ")
+        salt = os.urandom(32)
+        database = Database(DatabaseStructure(Database.encrypt(password, password, salt), salt))
+        database.save()
 
-        database = Database()
-        database.master_password = encrypt(master_password, master_password, salt)
-        database.master_salt = salt
-        save_database()
 
+
+    completion = Completion(database, commands.keys())
     readline.parse_and_bind("tab: complete")
-    readline.set_completer(completer)
+    readline.set_completer(completion.completer)
+
+    output = Output(args.timeout, args.clipboard)
 
     while True:
         try:
@@ -249,25 +257,28 @@ if __name__ == "__main__":
         except EOFError:
             print ""
             break
-        if line == "exit":
-            break
 
-        if len(line.split()) == 1 and line in database.passwords.keys():
+        if len(line.split()) == 1 and line in database.get_entry_names():
             master_password = getpass.getpass("Master-password: ")
-            password = decrypt(master_password, database.passwords[line]["password"], database.passwords[line]["salt"])
-            print "Username: %s"%database.passwords[line]["username"]
-            output_password(password)
+            try:
+                username, password = database.get_entry(line, master_password)
+                print "Username: %s"%username
+                output.write(password)
+            except InvalidToken:
+                print "Invalid password!"
 
         else:
             try:
                 command = line.split()[0]
             except IndexError:
                 continue
-            if command == "help":
+
+            if command in commands.keys():
+                commands[command][0](" ".join(line.split()[1:]), database, output)
+            elif command == "help":
                 for cmd in commands.keys():
                     print "%s\t- %s"%(cmd, commands[cmd][1])
-                continue
-            if command in commands.keys():
-                commands[command][0](" ".join(line.split()[1:]))
             else:
                 print "No such command: %s"%command
+
+
