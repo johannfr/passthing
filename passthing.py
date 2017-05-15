@@ -148,10 +148,19 @@ def modify_command(entry_name, database, output, from_new=False):
         return
     readline.parse_and_bind('set disable-completion on')
     username = raw_input("Username: ")
-    password = getpass.getpass(prompt="Password[generate]: ")
+    password = getpass.getpass(prompt="Password[generate](or .): ")
     if len(password) == 0:
         generated = True
         password = database.generate_password()
+    elif password == ".":
+        lines = []
+        print "Type in your lines, terminate with a line having . on its own:"
+        while True:
+            new_line = raw_input()
+            if new_line == ".":
+                break
+            lines.append(new_line)
+        password = "\n".join(lines)
     salt = os.urandom(32)
     master_password = getpass.getpass("Master-password: ")
     if not database.verify_master_password(master_password):
