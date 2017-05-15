@@ -29,8 +29,9 @@ class DatabaseStructure(object):
 
 class Database():
 
-    def __init__(self, database):
+    def __init__(self, database, filename):
         self.database = database
+	self.filename = filename
 
     def verify_master_password(self, password):
         try:
@@ -65,8 +66,8 @@ class Database():
         random.seed(os.urandom(1024))
         return "".join(random.choice(chars) for i in range(length))
 
-    def save(self, filename="passthing.pt"):
-        pickle.dump(self.database, open(filename, "wb"), protocol=2)
+    def save(self):
+        pickle.dump(self.database, open(self.filename, "wb"), protocol=2)
 
     @staticmethod
     def encrypt(master_password, text, salt):
@@ -235,12 +236,12 @@ if __name__ == "__main__":
 
     try:
         saved_database = pickle.load(open(args.database, "rb"))
-        database = Database(saved_database)
+        database = Database(saved_database, database_filename)
     except IOError:
         print "Creating a new database."
         password = getpass.getpass(prompt="New master-password: ")
         salt = os.urandom(32)
-        database = Database(DatabaseStructure(Database.encrypt(password, password, salt), salt))
+        database = Database(DatabaseStructure(Database.encrypt(password, password, salt), salt), database_filename)
         database.save()
 
 
