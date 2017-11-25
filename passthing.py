@@ -203,7 +203,8 @@ commands = {
     "remove" : [remove_command, "Remove entry"],
     "modify" : [modify_command, "Modify entry"],
     "list" : [list_command, "List entries"],
-    "exit" : [exit_command, "Exit passthing"]
+    "exit" : [exit_command, "Exit passthing"],
+    "quit" : [exit_command, "Exit passthing"]
 }
 
 if __name__ == "__main__":
@@ -273,7 +274,10 @@ if __name__ == "__main__":
             try:
                 username, password = database.get_entry(line, master_password)
                 print "Username: %s"%username
-                output.write(password)
+                if len(password.split("\n")) > 1:
+                    print password
+                else:
+                    output.write(password)
             except InvalidToken:
                 print "Invalid password!"
 
