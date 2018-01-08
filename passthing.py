@@ -12,6 +12,7 @@ import time
 import subprocess
 import string
 import random
+from math import ceil
 
 from colored import fg, bg, attr
 
@@ -61,10 +62,17 @@ class Database():
         }
 
 
-    def generate_password(self, length=16):
-        chars = string.ascii_letters + string.digits + "!@#$%^&*()"
+    def generate_password(self, length=32):
+        # chars = string.ascii_letters + string.digits + "!@#$%^&*()"
         random.seed(os.urandom(1024))
-        return "".join(random.choice(chars) for i in range(length))
+        chars = [random.choice(string.ascii_letters) for i in range(int(ceil(length/3.0)))]
+        random.seed(os.urandom(1024))
+        chars.extend([random.choice(string.digits) for i in range(int(ceil(length/3.0)))])
+        random.seed(os.urandom(1024))
+        chars.extend([random.choice("!@#$%^&*()") for i in range(int(ceil(length/3.0)))])
+        random.seed(os.urandom(1024))
+        random.shuffle(chars)
+        return "".join(chars)
 
     def save(self):
         pickle.dump(self.database, open(self.filename, "wb"), protocol=2)
